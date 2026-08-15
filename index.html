@@ -399,7 +399,7 @@ function crackle() {
   for (var i = 0; i < n; i++) emitSpark(true);
   if (strength > .55) flare = Math.max(flare, strength);
   Audio.crackle(strength);
-  nextCrackle = T + (.22 + rnd() * rnd() * 5.2) / (.22 + fl * .78);
+  nextCrackle = T + (.9 + rnd() * rnd() * 12) / (.22 + fl * .78);
 }
 
 function step(dt) {
