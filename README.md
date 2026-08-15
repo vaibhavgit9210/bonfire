@@ -6,6 +6,8 @@ Live: https://vaibhavkumar.is-a.dev/bonfire/
 
 Single file, no build step, no CDN, no assets. Everything (the flame, the logs, the crackling) is generated at runtime.
 
+There is also a **native iOS and macOS app** in [`xcode/`](xcode/): SwiftUI, SpriteKit and AVAudioEngine, no packages, open and run. The simulation there is a literal port, verified to produce the same numbers as this one. See [`xcode/README.md`](xcode/README.md).
+
 ## Controls
 
 | | |

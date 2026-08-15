@@ -1,0 +1,291 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		4A7D67635C6A05781AB41072 /* BonfireApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C3E5908D07101E72B373D8 /* BonfireApp.swift */; };
+		9CB4C291AA7AFE6E16969A56 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E868F5DEB2173E7C85068BA /* ContentView.swift */; };
+		2C4D73F45DAF109B22EE3679 /* CrackleAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10316D4080D2E2191C403C47 /* CrackleAudio.swift */; };
+		8A49078B7AB072A4675D5263 /* FireController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D70647AE89431BFB56A78C6 /* FireController.swift */; };
+		5DEA2247128BC958334DCBB8 /* FireScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20BB874F8D223C4E647E4320 /* FireScene.swift */; };
+		573641F60B7DDA8F67FFDEB6 /* FireSim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52FC954FD6DE0B2182CFEB0C /* FireSim.swift */; };
+		4D1345C51AF5902205DE3F17 /* Noise.swift in Sources */ = {isa = PBXBuildFile; fileRef = B878424EA9EC90CC61993D87 /* Noise.swift */; };
+		B5BBDA1E2C879AC19F553BE3 /* SceneArt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40D6C2B9E8F71278977B6A6B /* SceneArt.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		E75C32C5BF6D6051C7381037 /* Bonfire.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Bonfire.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B0C3E5908D07101E72B373D8 /* BonfireApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonfireApp.swift; sourceTree = "<group>"; };
+		7E868F5DEB2173E7C85068BA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		10316D4080D2E2191C403C47 /* CrackleAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrackleAudio.swift; sourceTree = "<group>"; };
+		6D70647AE89431BFB56A78C6 /* FireController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireController.swift; sourceTree = "<group>"; };
+		20BB874F8D223C4E647E4320 /* FireScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireScene.swift; sourceTree = "<group>"; };
+		52FC954FD6DE0B2182CFEB0C /* FireSim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSim.swift; sourceTree = "<group>"; };
+		B878424EA9EC90CC61993D87 /* Noise.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Noise.swift; sourceTree = "<group>"; };
+		40D6C2B9E8F71278977B6A6B /* SceneArt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneArt.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		2920D1FCAC5D76ACFA23C6A0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		C59DE3053769421086AF8082 = {
+			isa = PBXGroup;
+			children = (
+				DDDCA58CAA07902B8C3FABE8 /* Bonfire */,
+				ACA6F63DE38F903925DA92C1 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		DDDCA58CAA07902B8C3FABE8 /* Bonfire */ = {
+			isa = PBXGroup;
+			children = (
+				B0C3E5908D07101E72B373D8 /* BonfireApp.swift */,
+				7E868F5DEB2173E7C85068BA /* ContentView.swift */,
+				10316D4080D2E2191C403C47 /* CrackleAudio.swift */,
+				6D70647AE89431BFB56A78C6 /* FireController.swift */,
+				20BB874F8D223C4E647E4320 /* FireScene.swift */,
+				52FC954FD6DE0B2182CFEB0C /* FireSim.swift */,
+				B878424EA9EC90CC61993D87 /* Noise.swift */,
+				40D6C2B9E8F71278977B6A6B /* SceneArt.swift */,
+			);
+			path = Bonfire;
+			sourceTree = "<group>";
+		};
+		ACA6F63DE38F903925DA92C1 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				E75C32C5BF6D6051C7381037 /* Bonfire.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E3FA745A143C451D462EC332 /* Bonfire */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 52BD1A790C1950DE058D0EA2 /* Build configuration list for PBXNativeTarget "Bonfire" */;
+			buildPhases = (
+				8979012303ACD804FEB337A7 /* Sources */,
+				2920D1FCAC5D76ACFA23C6A0 /* Frameworks */,
+				FCCE837B363B46B1F6DCEDAB /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Bonfire;
+			productName = Bonfire;
+			productReference = E75C32C5BF6D6051C7381037 /* Bonfire.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		ACAF67F7891E364894B61345 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					E3FA745A143C451D462EC332 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = 0BD4027199460DB78538375E /* Build configuration list for PBXProject "Bonfire" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = C59DE3053769421086AF8082;
+			productRefGroup = ACA6F63DE38F903925DA92C1 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E3FA745A143C451D462EC332 /* Bonfire */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		FCCE837B363B46B1F6DCEDAB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8979012303ACD804FEB337A7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4A7D67635C6A05781AB41072 /* BonfireApp.swift in Sources */,
+				9CB4C291AA7AFE6E16969A56 /* ContentView.swift in Sources */,
+				2C4D73F45DAF109B22EE3679 /* CrackleAudio.swift in Sources */,
+				8A49078B7AB072A4675D5263 /* FireController.swift in Sources */,
+				5DEA2247128BC958334DCBB8 /* FireScene.swift in Sources */,
+				573641F60B7DDA8F67FFDEB6 /* FireSim.swift in Sources */,
+				4D1345C51AF5902205DE3F17 /* Noise.swift in Sources */,
+				B5BBDA1E2C879AC19F553BE3 /* SceneArt.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		5E30B5CA0611C064D1E1A6D8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		85DCFA851E32D99D0172B4A0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		9030197E79D78DC1D53A83E2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIStatusBarHidden = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.vaibhavkumar.bonfire;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		F56F09E7CA94DDA46ABBE461 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIStatusBarHidden = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.vaibhavkumar.bonfire;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0BD4027199460DB78538375E /* Build configuration list for PBXProject "Bonfire" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E30B5CA0611C064D1E1A6D8 /* Debug */,
+				85DCFA851E32D99D0172B4A0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		52BD1A790C1950DE058D0EA2 /* Build configuration list for PBXNativeTarget "Bonfire" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9030197E79D78DC1D53A83E2 /* Debug */,
+				F56F09E7CA94DDA46ABBE461 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = ACAF67F7891E364894B61345 /* Project object */;
+}
