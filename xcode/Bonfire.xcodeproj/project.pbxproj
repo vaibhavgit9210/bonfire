@@ -15,6 +15,7 @@
 		573641F60B7DDA8F67FFDEB6 /* FireSim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52FC954FD6DE0B2182CFEB0C /* FireSim.swift */; };
 		4D1345C51AF5902205DE3F17 /* Noise.swift in Sources */ = {isa = PBXBuildFile; fileRef = B878424EA9EC90CC61993D87 /* Noise.swift */; };
 		B5BBDA1E2C879AC19F553BE3 /* SceneArt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40D6C2B9E8F71278977B6A6B /* SceneArt.swift */; };
+		DE5679782C295A35C7BBE733 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 158EEEA233A6DC25AFC2BF0F /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +28,7 @@
 		52FC954FD6DE0B2182CFEB0C /* FireSim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSim.swift; sourceTree = "<group>"; };
 		B878424EA9EC90CC61993D87 /* Noise.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Noise.swift; sourceTree = "<group>"; };
 		40D6C2B9E8F71278977B6A6B /* SceneArt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneArt.swift; sourceTree = "<group>"; };
+		158EEEA233A6DC25AFC2BF0F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -59,6 +61,7 @@
 				52FC954FD6DE0B2182CFEB0C /* FireSim.swift */,
 				B878424EA9EC90CC61993D87 /* Noise.swift */,
 				40D6C2B9E8F71278977B6A6B /* SceneArt.swift */,
+				158EEEA233A6DC25AFC2BF0F /* Assets.xcassets */,
 			);
 			path = Bonfire;
 			sourceTree = "<group>";
@@ -129,6 +132,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DE5679782C295A35C7BBE733 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -213,6 +217,7 @@
 		9030197E79D78DC1D53A83E2 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -240,6 +245,7 @@
 		F56F09E7CA94DDA46ABBE461 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = YES;
