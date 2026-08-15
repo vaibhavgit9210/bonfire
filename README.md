@@ -11,12 +11,15 @@ Single file, no build step, no CDN, no assets. Everything (the flame, the logs, 
 | | |
 |---|---|
 | tap or click anywhere | feed the fire: brighter, bigger, a crackle and a burst of sparks |
-| drag the left edge | invisible slider, sets the fire anywhere from out to full blaze |
+| drag or scroll the **left half** | flame and brightness, from out to full blaze |
+| drag or scroll the **right half** | volume, from silent to full |
 | lock button / `L` | freeze the fire where it is, so it stops burning down |
 | speaker button / `S` | sound on-off |
 | expand button / `F` / double-click | fullscreen |
 
-The controls and the cursor fade out after ~2.6s of no input, so a fullscreen tab is just fire. The slider rail is invisible until you touch it, then fades again.
+The whole screen is the control surface, split down the middle. A drag is a drag once it has travelled 8px; anything shorter is a tap and feeds the fire instead. Full range is 60% of the screen height, measured relative to where the drag started, so you can begin anywhere. Mouse wheel and trackpad scroll do the same thing on the same two halves.
+
+Nothing is visible until you use it: a thin rail fades in on whichever side you are working and fades back out. The controls and the cursor fade out after ~2.6s of no input, so a fullscreen tab is just fire.
 
 Sound starts muted because browsers block audio until you interact with the page. The first tap turns it on.
 
@@ -37,6 +40,21 @@ One detail worth knowing: additive particle brightness falls off with roughly th
 **Wandering.** A slow noise-driven gust and a slow intensity swell mean the fire never settles into a loop. Nothing here is on a fixed cycle.
 
 **Crackles.** No bed, no roar, no hiss: silence between crackles. Each pop is a burst of a shared brown-noise buffer through a randomised bandpass with a fast exponential decay, and loud snaps get a woody triangle thump underneath. Crackle events are scheduled in simulation time, not by the audio clock, so the spark burst and the pop always agree and the sparks still fire when muted.
+
+The timing is a clustered point process rather than a metronome. A log pops, then follows up with probability 0.45 about a second later, which makes cluster size geometric. Between clusters the gap is **log-normal** (median 12s, sigma 1.5), and that is the part that matters: a plain Poisson process has memoryless gaps but an exponential tail, so it would essentially never go quiet for minutes. Log-normal does. Measured over 200k draws at full fire:
+
+| | gap |
+|---|---|
+| median | 2.2s |
+| mean | 20s |
+| 90th percentile | 47s |
+| over 1 minute | 7.8% |
+| over 3 minutes | 2.0% |
+| over 5 minutes | 0.9% |
+
+A dying fire stretches all of that by up to 4.5x. Feeding the fire cancels any long silence that was drawn while it was nearly dead.
+
+Crackle timing has its own PRNG stream seeded from `crypto.getRandomValues`, so no two visits hear the same pattern. The screenshot hook re-seeds it to a fixed value so shots stay reproducible.
 
 ## Running for hours
 

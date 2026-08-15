@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Bonfire</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2064%2064%27%3E%3Crect%20width%3D%2764%27%20height%3D%2764%27%20rx%3D%2714%27%20fill%3D%27%23060a13%27%2F%3E%3Ctext%20x%3D%2732%27%20y%3D%2746%27%20font-size%3D%2738%27%20text-anchor%3D%27middle%27%3E%F0%9F%94%A5%3C%2Ftext%3E%3C%2Fsvg%3E">
 <meta name="description" content="A bonfire that burns down over half an hour. Tap to feed it.">
 <meta name="theme-color" content="#000000">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -18,7 +19,7 @@
     touch-action: manipulation; overscroll-behavior: none;
     -webkit-user-select: none; user-select: none;
   }
-  canvas { display: block; width: 100%; height: 100%; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   body.idle { cursor: none; }
 
   #ui {
@@ -41,24 +42,23 @@
   #ui button svg { width: 20px; height: 20px; display: block; }
   #ui button.off { color: rgba(255, 184, 119, .38); }
 
-  /* invisible until you touch it: drag anywhere down the left edge to set the flame */
-  #slider {
-    position: fixed; left: 0; top: 0; bottom: 0; z-index: 6;
-    width: 13vw; min-width: 56px; max-width: 120px;
-    touch-action: none; cursor: ns-resize;
-  }
-  #sliderrail {
-    position: absolute; left: 14px; top: min(70px, 12vh); bottom: min(70px, 12vh);
+  /* the whole screen is the control: drag or scroll the left half for the
+     flame, the right half for the volume. Rails stay invisible until used. */
+  .rail {
+    position: fixed; top: min(70px, 12vh); bottom: min(70px, 12vh); z-index: 6;
     width: 3px; border-radius: 2px;
     background: rgba(255, 170, 90, .14);
     opacity: 0; transition: opacity .45s ease;
+    pointer-events: none;
   }
-  #sliderfill {
-    position: absolute; left: 0; right: 0; bottom: 0;
-    border-radius: 2px;
-    background: linear-gradient(to top, rgba(255, 120, 30, .85), rgba(255, 214, 150, .95));
+  .rail.live { opacity: 1; transition: opacity .12s ease; }
+  #railL { left: 16px; }
+  #railR { right: 16px; }
+  .rail .fill {
+    position: absolute; left: 0; right: 0; bottom: 0; border-radius: 2px;
   }
-  #slider.live #sliderrail { opacity: 1; transition: opacity .12s ease; }
+  #railL .fill { background: linear-gradient(to top, rgba(255, 120, 30, .85), rgba(255, 214, 150, .95)); }
+  #railR .fill { background: linear-gradient(to top, rgba(190, 178, 166, .55), rgba(255, 238, 218, .85)); }
 
   #hint {
     position: fixed; left: 0; right: 0; bottom: 26px; z-index: 4;
@@ -77,7 +77,8 @@
 <body>
 <canvas id="c"></canvas>
 
-<div id="slider" aria-hidden="true"><div id="sliderrail"><div id="sliderfill"></div></div></div>
+<div id="railL" class="rail" aria-hidden="true"><div class="fill" id="fillL"></div></div>
+<div id="railR" class="rail" aria-hidden="true"><div class="fill" id="fillR"></div></div>
 
 <div id="ui">
   <button id="lock" class="off" title="Lock the flame where it is (L)" aria-label="Lock the flame">
@@ -101,7 +102,7 @@
   </button>
 </div>
 
-<div id="hint">tap to feed the fire &nbsp;·&nbsp; drag the left edge to set it</div>
+<div id="hint">tap to feed the fire &nbsp;·&nbsp; scroll left half for flame, right half for sound</div>
 
 <script>
 "use strict";
@@ -122,6 +123,23 @@ function mulberry32(a) {
 
 var rnd = mulberry32(0x5eed);      // simulation stream
 var srnd = mulberry32(0x1f5a37);   // scene-layout stream, re-seeded on resize
+
+// Crackle timing gets its own stream, seeded from the platform CSPRNG so that
+// two visits never hear the same pattern. The screenshot hook re-seeds it fixed.
+function trueSeed() {
+  try {
+    var a = new Uint32Array(1);
+    (window.crypto || window.msCrypto).getRandomValues(a);
+    return a[0] | 0;
+  } catch (e) { return (Date.now() ^ 0x9e3779b9) | 0; }
+}
+var arnd = mulberry32(trueSeed());
+
+// standard normal, Box-Muller. u is taken from (0,1] so the log never blows up.
+function gauss() {
+  var u = 1 - arnd(), v = arnd();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(6.283185307179586 * v);
+}
 
 // value noise over a hashed lattice — cheap, seamless enough for turbulence
 var PERM = new Uint8Array(512);
@@ -313,6 +331,9 @@ function feed(amount) {    // a tap: throw something on the fire
   setFuel(fuel + amount);
   flare = Math.max(flare, .6 + amount * 1.6);
   for (var i = 0; i < 12 + (amount * 90 | 0); i++) emitSpark(true);
+  // fresh wood wakes it up, so do not sit out a long silence that was drawn
+  // back when the fire was nearly dead
+  nextCrackle = Math.min(nextCrackle, T + 1 + arnd() * 6);
   return true;
 }
 
@@ -392,6 +413,30 @@ function emitSpark(burst) {
   p.dead = false;
 }
 
+/* Crackles are a clustered point process, not a metronome. A log pops a few
+ * times over a second or two, then the fire can say nothing for minutes.
+ *
+ *   - within a cluster: another pop follows with probability CL_FOLLOW, which
+ *     makes cluster size geometric (mean 1/(1-p)), a second or so apart
+ *   - between clusters: the gap is log-normal. That is what gives the long
+ *     tail. A plain Poisson process (exponential gaps) is memoryless but its
+ *     tail dies off exponentially, so it would almost never go quiet for
+ *     minutes on end, which is exactly the behaviour wanted here.
+ */
+var CL_MEDIAN = 12, CL_SIGMA = 1.5, CL_FOLLOW = .45, CL_MAX = 900;
+
+function scheduleCrackle() {
+  var gap;
+  if (arnd() < CL_FOLLOW) {
+    gap = .35 + arnd() * arnd() * 2.6;            // same log, still settling
+  } else {
+    gap = Math.exp(Math.log(CL_MEDIAN) + CL_SIGMA * gauss());
+    gap /= (.22 + fl * .78);                      // a dying fire has less to say
+    if (gap > CL_MAX) gap = CL_MAX;
+  }
+  nextCrackle = T + gap;
+}
+
 function crackle() {
   // mostly small ticks, rarely a loud snap. Embers still tick, just quietly.
   var strength = Math.pow(rnd(), 2.1) * (.28 + fl * .72);
@@ -399,7 +444,7 @@ function crackle() {
   for (var i = 0; i < n; i++) emitSpark(true);
   if (strength > .55) flare = Math.max(flare, strength);
   Audio.crackle(strength);
-  nextCrackle = T + (.9 + rnd() * rnd() * 12) / (.22 + fl * .78);
+  scheduleCrackle();
 }
 
 function step(dt) {
@@ -716,6 +761,12 @@ function render() {
 
 var Audio = (function () {
   var ctxA = null, master = null, noiseBuf = null, on = false, ready = false;
+  var vol = 0;                 // the real level, so the rail never lies about it
+
+  function applyGain() {
+    master.gain.cancelScheduledValues(ctxA.currentTime);
+    master.gain.setTargetAtTime(on ? vol : 0, ctxA.currentTime, .05);
+  }
 
   function build() {
     var AC = window.AudioContext || window.webkitAudioContext;
@@ -782,24 +833,29 @@ var Audio = (function () {
 
   return {
     get on() { return on; },
+    get vol() { return on ? vol : 0; },
     crackle: function (strength) {
       if (!on || !ready) return;
       var n = 1 + (Math.random() * (1 + strength * 4) | 0);
       for (var i = 0; i < n; i++) pop(strength * (.45 + Math.random() * .55), i * (.012 + Math.random() * .075));
     },
+    // dragging the volume all the way down is the same as muting it
+    setVol: function (v) {
+      if (!ready && !build()) return false;
+      vol = v < 0 ? 0 : (v > 1 ? 1 : v);
+      on = vol > .01;
+      if (on && ctxA.state === "suspended") ctxA.resume();
+      applyGain();
+      return on;
+    },
     toggle: function () {
       if (!ready && !build()) return false;
       on = !on;
       if (on) {
+        if (vol < .05) vol = .7;
         if (ctxA.state === "suspended") ctxA.resume();
-        master.gain.cancelScheduledValues(ctxA.currentTime);
-        master.gain.setValueAtTime(Math.max(.0001, master.gain.value), ctxA.currentTime);
-        master.gain.linearRampToValueAtTime(.9, ctxA.currentTime + .5);
-      } else {
-        master.gain.cancelScheduledValues(ctxA.currentTime);
-        master.gain.setValueAtTime(master.gain.value, ctxA.currentTime);
-        master.gain.linearRampToValueAtTime(.0001, ctxA.currentTime + .4);
       }
+      applyGain();
       return on;
     }
   };
@@ -944,54 +1000,70 @@ document.addEventListener("keydown", function (e) {
   else if (k === " ") { tapFire(); e.preventDefault(); }
 });
 
-/* ---- invisible slider down the left edge, and tap-to-feed everywhere else ---- */
+/* ---- two invisible panes: drag or scroll the left half for the flame, the
+       right half for the volume. A tap that does not drag feeds the fire. ---- */
 
-var slider = document.getElementById("slider");
-var sliderFill = document.getElementById("sliderfill");
-var sliderId = null, sliderTimer = null;
+var railL = document.getElementById("railL"), fillL = document.getElementById("fillL");
+var railR = document.getElementById("railR"), fillR = document.getElementById("fillR");
+var railTimerL = null, railTimerR = null;
+var DRAG_SLOP = 8;                      // px of travel before a tap becomes a drag
+function dragSpan() { return Math.max(1, H * .6); }   // full range over 60% of the screen
 
-function sliderPad() { return Math.min(70, H * .12); }
-
-function sliderSet(clientY) {
-  if (!locked) {                        // locked still shows the rail, it just will not move
-    var pad = sliderPad();
-    setFuel(1 - (clientY - pad) / Math.max(1, H - pad * 2));
+function showRail(right) {
+  if (right) {
+    fillR.style.height = (Audio.vol * 100) + "%";
+    railR.classList.add("live");
+    if (railTimerR) clearTimeout(railTimerR);
+    railTimerR = setTimeout(function () { railR.classList.remove("live"); }, 900);
+  } else {
+    fillL.style.height = (fuel * 100) + "%";
+    railL.classList.add("live");
+    if (railTimerL) clearTimeout(railTimerL);
+    railTimerL = setTimeout(function () { railL.classList.remove("live"); }, 900);
   }
-  showSlider();
 }
 
-function showSlider() {
-  slider.classList.add("live");
-  sliderFill.style.height = (fuel * 100) + "%";
-  if (sliderTimer) clearTimeout(sliderTimer);
-  sliderTimer = setTimeout(function () { slider.classList.remove("live"); }, 900);
-}
-
-slider.addEventListener("pointerdown", function (e) {
-  sliderId = e.pointerId;
-  try { slider.setPointerCapture(sliderId); } catch (err) { }
-  sliderSet(e.clientY);
-  e.preventDefault();
-});
-slider.addEventListener("pointermove", function (e) {
-  if (e.pointerId !== sliderId) return;
-  sliderSet(e.clientY);
-  e.preventDefault();
-});
-function endSlider(e) {
-  if (e.pointerId !== sliderId) return;
-  sliderId = null;
-  if (!Audio.on) toggleSound();
+function adjust(right, delta) {         // delta in px, up is positive
+  var v = delta / dragSpan();
+  if (right) setSoundUI(Audio.setVol(Audio.vol + v));
+  else if (!locked) setFuel(fuel + v);  // locked still shows the rail, it just will not move
+  showRail(right);
   hideHint();
 }
-slider.addEventListener("pointerup", endSlider);
-slider.addEventListener("pointercancel", endSlider);
 
-// anywhere that is not the slider or a button feeds the fire
+var gest = null;
+
 canvas.addEventListener("pointerdown", function (e) {
   if (e.button !== undefined && e.button !== 0) return;
-  tapFire();
+  gest = { id: e.pointerId, y: e.clientY, right: e.clientX > W * .5, drag: false };
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) { }
 });
+
+canvas.addEventListener("pointermove", function (e) {
+  if (!gest || e.pointerId !== gest.id) return;
+  var dy = e.clientY - gest.y;
+  if (!gest.drag && Math.abs(dy) < DRAG_SLOP) return;
+  gest.drag = true;
+  gest.y = e.clientY;
+  adjust(gest.right, -dy);              // drag up to raise
+  e.preventDefault();
+});
+
+function endGesture(e) {
+  if (!gest || e.pointerId !== gest.id) return;
+  if (!gest.drag) tapFire();            // it never moved, so it was a tap
+  gest = null;
+}
+canvas.addEventListener("pointerup", endGesture);
+canvas.addEventListener("pointercancel", endGesture);
+
+// mouse wheel and trackpad scroll do the same thing, split down the same line
+window.addEventListener("wheel", function (e) {
+  if (e.ctrlKey) return;                // leave trackpad pinch-zoom alone
+  var px = e.deltaY * (e.deltaMode === 1 ? 16 : (e.deltaMode === 2 ? H : 1));
+  adjust(e.clientX > W * .5, -px);
+  e.preventDefault();
+}, { passive: false });
 
 // hide the chrome (and the cursor) once you stop touching anything
 var idleTimer = null;
@@ -1045,6 +1117,7 @@ if (m) {
   var mf = /[#&]f=([\d.]+)/.exec(location.hash);
   litness = 1;
   locked = true;                              // hold the fuel steady for the shot
+  arnd = mulberry32(0xc0ffee);                // and make the crackle timing repeatable
   setLockUI();
   setFuel(mf ? parseFloat(mf[1]) : 1);
   var n = Math.round(target / STEP);
