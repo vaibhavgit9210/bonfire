@@ -2,15 +2,21 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Bonfire</title>
-<meta name="description" content="An endless bonfire. Fullscreen it, turn the sound on, leave it burning.">
+<meta name="description" content="A bonfire that burns down over half an hour. Tap to feed it.">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Bonfire">
 <style>
   html, body {
     margin: 0; padding: 0; height: 100%; width: 100%;
     background: #000; overflow: hidden;
     font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
   }
   canvas { display: block; width: 100%; height: 100%; }
   body.idle { cursor: none; }
@@ -35,6 +41,25 @@
   #ui button svg { width: 20px; height: 20px; display: block; }
   #ui button.off { color: rgba(255, 184, 119, .38); }
 
+  /* invisible until you touch it: drag anywhere down the left edge to set the flame */
+  #slider {
+    position: fixed; left: 0; top: 0; bottom: 0; z-index: 6;
+    width: 13vw; min-width: 56px; max-width: 120px;
+    touch-action: none; cursor: ns-resize;
+  }
+  #sliderrail {
+    position: absolute; left: 14px; top: min(70px, 12vh); bottom: min(70px, 12vh);
+    width: 3px; border-radius: 2px;
+    background: rgba(255, 170, 90, .14);
+    opacity: 0; transition: opacity .45s ease;
+  }
+  #sliderfill {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    border-radius: 2px;
+    background: linear-gradient(to top, rgba(255, 120, 30, .85), rgba(255, 214, 150, .95));
+  }
+  #slider.live #sliderrail { opacity: 1; transition: opacity .12s ease; }
+
   #hint {
     position: fixed; left: 0; right: 0; bottom: 26px; z-index: 4;
     text-align: center; color: rgba(255, 200, 150, .55);
@@ -52,7 +77,16 @@
 <body>
 <canvas id="c"></canvas>
 
+<div id="slider" aria-hidden="true"><div id="sliderrail"><div id="sliderfill"></div></div></div>
+
 <div id="ui">
+  <button id="lock" class="off" title="Lock the flame where it is (L)" aria-label="Lock the flame">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="5" y="10.5" width="14" height="9.5" rx="2.2"/>
+      <path id="lockopen" d="M8.4 10.5V7.6a3.6 3.6 0 0 1 7 -1.1"/>
+      <path id="lockshut" d="M8.4 10.5V7.6a3.6 3.6 0 0 1 7.2 0v2.9" style="display:none"/>
+    </svg>
+  </button>
   <button id="sound" class="off" title="Sound (S)" aria-label="Toggle sound">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
       <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z"/>
@@ -67,7 +101,7 @@
   </button>
 </div>
 
-<div id="hint">click for sound &nbsp;·&nbsp; f for fullscreen</div>
+<div id="hint">tap to feed the fire &nbsp;·&nbsp; drag the left edge to set it</div>
 
 <script>
 "use strict";
@@ -263,6 +297,25 @@ var nextCrackle = 1.2;
 var flare = 0;             // brief brightness bump after a loud crackle
 var litness = 0;           // 0..1 ignition ramp so the first seconds build up
 
+// the fire burns down over BURN seconds if nobody touches it, then sits as
+// embers until it is fed again.
+var BURN = 30 * 60;
+var fuel = 1;              // 0 = out (embers only), 1 = full blaze
+var fl = 1;                // flame strength derived from fuel: 0 below the ember line
+var locked = false;        // lock button freezes fuel where it is
+
+function setFuel(v) {
+  fuel = v < 0 ? 0 : (v > 1 ? 1 : v);
+}
+
+function feed(amount) {    // a tap: throw something on the fire
+  if (locked) return false;
+  setFuel(fuel + amount);
+  flare = Math.max(flare, .6 + amount * 1.6);
+  for (var i = 0; i < 12 + (amount * 90 | 0); i++) emitSpark(true);
+  return true;
+}
+
 var EMITTERS = [
   { x: -58, w: 34, weight: .8, ph: 0.0 },
   { x: -2, w: 42, weight: 1.0, ph: 2.1 },
@@ -281,13 +334,16 @@ function emitFlame(core) {
   var e = pickEmitter();
   var wob = (noise1(T * .5 + e.ph) - .5) * 24;
   var sp = (rnd() + rnd() - 1);
-  p.x = (e.x + wob + sp * e.w) * U;
+  var bed = .42 + fl * .58;                         // a low fire sits on a narrower bed
+  p.x = (e.x * bed + wob * bed + sp * e.w * bed) * U;
   p.y = (10 + (rnd() - .5) * 18) * U;
   p.vx = sp * -12 * U + (rnd() - .5) * 30 * U;      // converge toward the middle
-  p.vy = -(core ? 150 : 95) * U * (.7 + rnd() * .6);
+  p.vy = -(core ? 150 : 95) * U * (.7 + rnd() * .6) * (.8 + fl * .2);
   p.age = 0;
-  p.life = core ? .24 + rnd() * .32 : .8 + rnd() * .85;
-  p.size = (core ? 14 + rnd() * 18 : 36 + rnd() * 48) * U;
+  // a small fire narrows and dims far more than it shortens, otherwise the
+  // last flames hide inside the pyre and it reads as coals too early
+  p.life = (core ? .24 + rnd() * .32 : .8 + rnd() * .85) * (.7 + fl * .3);
+  p.size = (core ? 14 + rnd() * 18 : 36 + rnd() * 48) * U * (.55 + fl * .45);
   p.a0 = core ? .13 + rnd() * .12 : .13 + rnd() * .13;
   p.heat = core ? 0 : rnd() * .3;
   p.c0 = core ? 0 : 1.4;                             // only the core burns white
@@ -323,10 +379,11 @@ function emitSpark(burst) {
     p.vx = Math.cos(a) * s;
     p.vy = Math.sin(a) * s * .55 - 120 * U;
   } else {
-    p.x = (rnd() - .5) * 86 * U;
+    // embers lifting off the coals: lazy when the fire is low, torn away when it is up
+    p.x = (rnd() - .5) * 86 * U * (.5 + fl * .5);
     p.y = -(rnd() * 60) * U;
     p.vx = (rnd() - .5) * 40 * U;
-    p.vy = -(150 + rnd() * 220) * U;
+    p.vy = -(150 + rnd() * 220) * U * (.22 + fl * .78);
   }
   p.age = 0;
   p.life = 1.1 + rnd() * 3.4;
@@ -336,35 +393,45 @@ function emitSpark(burst) {
 }
 
 function crackle() {
-  var strength = Math.pow(rnd(), 2.1);              // mostly small ticks, rarely a loud snap
-  var n = 3 + (strength * 26 | 0);
+  // mostly small ticks, rarely a loud snap. Embers still tick, just quietly.
+  var strength = Math.pow(rnd(), 2.1) * (.28 + fl * .72);
+  var n = 2 + (strength * 26 | 0);
   for (var i = 0; i < n; i++) emitSpark(true);
   if (strength > .55) flare = Math.max(flare, strength);
   Audio.crackle(strength);
-  nextCrackle = T + .22 + rnd() * rnd() * 5.2;
+  nextCrackle = T + (.22 + rnd() * rnd() * 5.2) / (.22 + fl * .78);
 }
 
 function step(dt) {
   T += dt;
   litness = Math.min(1, litness + dt * .55);
 
+  // burn down: full to out over BURN seconds unless it is fed or locked
+  if (!locked) setFuel(fuel - dt / BURN);
+  // flames give out before the fuel does, leaving a bed of embers behind
+  fl = fuel <= .05 ? 0 : (fuel - .05) / .95;
+
   // slow breathing so it never looks looped
   gust = (noise1(T * .085) - .5) * 2;
   breath = .78 + noise1(T * .13 + 40) * .5;
-  var vigor = breath * litness;
-  flare *= Math.pow(.02, dt);
+  var vigor = breath * litness * fl;
+  // a small fire is still bright, just smaller. Additive density falls off with
+  // the square of the particle count, so the rate drops slower than the size.
+  var emitK = breath * litness * Math.pow(fl, .4);
+  flare *= Math.pow(.05, dt);
 
   var windX = gust * 46 * U * (.6 + breath * .5);
 
   // ---- emission (accumulators keep rates frame-rate independent)
   var q = quality;
-  flameAcc += dt * 480 * vigor * q;
+  flameAcc += dt * 480 * emitK * q;
   while (flameAcc >= 1) { emitFlame(false); flameAcc -= 1; }
-  coreAcc += dt * 150 * vigor * q;
+  coreAcc += dt * 150 * emitK * q;
   while (coreAcc >= 1) { emitFlame(true); coreAcc -= 1; }
   smokeAcc += dt * 15 * vigor * q;
   while (smokeAcc >= 1) { emitSmoke(); smokeAcc -= 1; }
-  sparkAcc += dt * (4 + vigor * 6) * q;
+  // embers keep lifting off even with the flames gone
+  sparkAcc += dt * (2.2 + fuel * 2.5 + vigor * 6) * q * litness;
   while (sparkAcc >= 1) { emitSpark(false); sparkAcc -= 1; }
 
   if (T >= nextCrackle) crackle();
@@ -384,7 +451,8 @@ function step(dt) {
     var turb = (t1 * 170 + t2 * 105) * U;
 
     p.vx += (turb + p.swirl * 20 * U + windX * (.25 + f * 1.1)) * dt;
-    p.vy -= (345 * (1 - f * .7) + 75 * breath) * U * dt;      // buoyancy dies as it cools
+    // buoyancy dies as the particle cools, and a smaller fire pushes less air
+    p.vy -= (345 * (1 - f * .7) + 75 * breath) * U * dt * (.78 + fl * .22);
     p.vx -= p.x * 1.8 * dt;                                   // necking: pull toward the core
     p.vx *= Math.pow(.16, dt);
     p.vy *= Math.pow(.42, dt);
@@ -558,8 +626,13 @@ function drawLog(L, light) {
 }
 
 function render() {
-  var vigor = breath * litness;
-  var light = Math.min(1.35, (.55 + vigor * .55 + flare * .5));
+  var vigor = breath * litness * fl;
+  // how hard the fire lights everything around it. Goes to near nothing when
+  // the flames are out, leaving the coals as the only source.
+  var coalGlow = litness * (.085 + Math.pow(fuel, .95) * .915);
+  var light = Math.min(1.35, .06 + vigor * .62 + coalGlow * .34 + flare * .5);
+  // a small fire throws a small pool of light, not a dim wide one
+  var spread = .3 + .7 * Math.max(fl, coalGlow * .5);
 
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.globalCompositeOperation = "source-over";
@@ -576,7 +649,7 @@ function render() {
   drawGround(light);
   ctx.globalCompositeOperation = "lighter";
   ctx.globalAlpha = .17 * light;
-  ctx.drawImage(GLOW_SPRITE, -400 * U, -110 * U, 800 * U, 268 * U);
+  ctx.drawImage(GLOW_SPRITE, -400 * U * spread, (-110 * U) * spread, 800 * U * spread, 268 * U * spread);
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
 
@@ -587,7 +660,7 @@ function render() {
   for (i = 0; i < coals.length; i++) {
     var cl = coals[i];
     var b = cl.hot * (.35 + .65 * (.5 + .5 * Math.sin(T * cl.sp + cl.ph))) * noise1(T * .6 + cl.ph * 3) * 2.1;
-    b = Math.min(1, b) * light;
+    b = Math.min(1, b) * (coalGlow + flare * .4);
     drawSprite(EMBER_SPRITE, cl.x * U, cl.y * U, cl.r * U * (3.4 + b * 2.2), b * .75);
   }
 
@@ -620,14 +693,14 @@ function render() {
   for (i = 0; i < sparks.length; i++) {
     p = sparks[i]; if (p.dead) continue;
     var f = p.age / p.life;
-    var fl = .45 + .55 * (.5 + .5 * Math.sin(T * 22 + p.flick));
-    drawSprite(SPARK_SPRITE, p.x, p.y, p.size * (2.4 + fl * 1.6), (1 - f) * (1 - f) * fl * .8);
+    var fk = .45 + .55 * (.5 + .5 * Math.sin(T * 22 + p.flick));
+    drawSprite(SPARK_SPRITE, p.x, p.y, p.size * (2.4 + fk * 1.6), (1 - f) * (1 - f) * fk * .8);
   }
 
   // --- bloom
-  var gA = (.09 + vigor * .07 + flare * .16);
-  drawSprite(GLOW_SPRITE, 0, -110 * U, 700 * U, gA);
-  drawSprite(GLOW_SPRITE, 0, -30 * U, 330 * U, gA * 1.1);
+  var gA = (.01 + vigor * .13 + coalGlow * .035 + flare * .16);
+  drawSprite(GLOW_SPRITE, 0, -110 * U * spread, 700 * U * spread, gA);
+  drawSprite(GLOW_SPRITE, 0, -30 * U * spread, 330 * U * spread, gA * 1.1);
 
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
@@ -663,29 +736,7 @@ var Audio = (function () {
     master.gain.value = 0;
     master.connect(ctxA.destination);
 
-    // the bed: low roar + high hiss off one looping source
-    var src = ctxA.createBufferSource();
-    src.buffer = noiseBuf; src.loop = true;
-
-    var lp = ctxA.createBiquadFilter();
-    lp.type = "lowpass"; lp.frequency.value = 420; lp.Q.value = .6;
-    var roar = ctxA.createGain(); roar.gain.value = .5;
-    src.connect(lp).connect(roar).connect(master);
-
-    var bp = ctxA.createBiquadFilter();
-    bp.type = "bandpass"; bp.frequency.value = 2600; bp.Q.value = .7;
-    var hiss = ctxA.createGain(); hiss.gain.value = .055;
-    src.connect(bp).connect(hiss).connect(master);
-
-    // two slow, mutually-detuned LFOs so the roar never settles into a loop
-    [[0.061, .22, roar.gain], [0.027, .13, roar.gain], [0.043, .022, hiss.gain]].forEach(function (m) {
-      var o = ctxA.createOscillator(); o.frequency.value = m[0];
-      var g = ctxA.createGain(); g.gain.value = m[1];
-      o.connect(g).connect(m[2]);
-      o.start();
-    });
-
-    src.start();
+    // no bed, no hiss, no roar. Silence between crackles.
     ready = true;
     return true;
   }
@@ -705,7 +756,7 @@ var Audio = (function () {
     bp.Q.value = 1.2 + Math.random() * 7;
 
     var g = ctxA.createGain();
-    var peak = .05 + strength * .34;
+    var peak = .08 + strength * .5;                  // nothing else in the mix now
     g.gain.setValueAtTime(.0001, t0);
     g.gain.exponentialRampToValueAtTime(peak, t0 + .004);
     g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
@@ -743,7 +794,7 @@ var Audio = (function () {
         if (ctxA.state === "suspended") ctxA.resume();
         master.gain.cancelScheduledValues(ctxA.currentTime);
         master.gain.setValueAtTime(Math.max(.0001, master.gain.value), ctxA.currentTime);
-        master.gain.linearRampToValueAtTime(.85, ctxA.currentTime + 1.6);
+        master.gain.linearRampToValueAtTime(.9, ctxA.currentTime + .5);
       } else {
         master.gain.cancelScheduledValues(ctxA.currentTime);
         master.gain.setValueAtTime(master.gain.value, ctxA.currentTime);
@@ -825,6 +876,9 @@ document.addEventListener("visibilitychange", function () {
 
 var soundBtn = document.getElementById("sound");
 var fullBtn = document.getElementById("full");
+var lockBtn = document.getElementById("lock");
+var lockOpen = document.getElementById("lockopen");
+var lockShut = document.getElementById("lockshut");
 var hint = document.getElementById("hint");
 var waves = document.getElementById("waves");
 var muted = document.getElementById("muted");
@@ -855,17 +909,88 @@ function toggleFullscreen() {
   }
 }
 
+function setLockUI() {
+  lockBtn.classList.toggle("off", !locked);
+  lockOpen.style.display = locked ? "none" : "";
+  lockShut.style.display = locked ? "" : "none";
+  lockBtn.title = locked ? "Flame locked (L)" : "Lock the flame where it is (L)";
+}
+
+function toggleLock() {
+  locked = !locked;
+  setLockUI();
+}
+
+// tapping the fire throws something on it: brighter, bigger, and a crackle
+function tapFire() {
+  if (!Audio.on) toggleSound();       // the gesture browsers wait for
+  hideHint();
+  if (locked) { Audio.crackle(.35); return; }
+  feed(.12);
+  Audio.crackle(.55 + Math.random() * .35);
+}
+
 soundBtn.addEventListener("click", function (e) { e.stopPropagation(); toggleSound(); });
 fullBtn.addEventListener("click", function (e) { e.stopPropagation(); toggleFullscreen(); });
+lockBtn.addEventListener("click", function (e) { e.stopPropagation(); toggleLock(); });
 
-// click anywhere to light the sound (browsers need the gesture anyway)
-document.addEventListener("click", function () { if (!Audio.on) toggleSound(); });
 document.addEventListener("dblclick", toggleFullscreen);
 
 document.addEventListener("keydown", function (e) {
   var k = e.key.toLowerCase();
   if (k === "f") { toggleFullscreen(); e.preventDefault(); }
   else if (k === "s" || k === "m") { toggleSound(); e.preventDefault(); }
+  else if (k === "l") { toggleLock(); e.preventDefault(); }
+  else if (k === " ") { tapFire(); e.preventDefault(); }
+});
+
+/* ---- invisible slider down the left edge, and tap-to-feed everywhere else ---- */
+
+var slider = document.getElementById("slider");
+var sliderFill = document.getElementById("sliderfill");
+var sliderId = null, sliderTimer = null;
+
+function sliderPad() { return Math.min(70, H * .12); }
+
+function sliderSet(clientY) {
+  if (!locked) {                        // locked still shows the rail, it just will not move
+    var pad = sliderPad();
+    setFuel(1 - (clientY - pad) / Math.max(1, H - pad * 2));
+  }
+  showSlider();
+}
+
+function showSlider() {
+  slider.classList.add("live");
+  sliderFill.style.height = (fuel * 100) + "%";
+  if (sliderTimer) clearTimeout(sliderTimer);
+  sliderTimer = setTimeout(function () { slider.classList.remove("live"); }, 900);
+}
+
+slider.addEventListener("pointerdown", function (e) {
+  sliderId = e.pointerId;
+  try { slider.setPointerCapture(sliderId); } catch (err) { }
+  sliderSet(e.clientY);
+  e.preventDefault();
+});
+slider.addEventListener("pointermove", function (e) {
+  if (e.pointerId !== sliderId) return;
+  sliderSet(e.clientY);
+  e.preventDefault();
+});
+function endSlider(e) {
+  if (e.pointerId !== sliderId) return;
+  sliderId = null;
+  if (!Audio.on) toggleSound();
+  hideHint();
+}
+slider.addEventListener("pointerup", endSlider);
+slider.addEventListener("pointercancel", endSlider);
+
+// anywhere that is not the slider or a button feeds the fire
+canvas.addEventListener("pointerdown", function (e) {
+  if (e.button !== undefined && e.button !== 0) return;
+  tapFire();
 });
 
 // hide the chrome (and the cursor) once you stop touching anything
@@ -875,11 +1000,30 @@ function wake() {
   if (idleTimer) clearTimeout(idleTimer);
   idleTimer = setTimeout(function () { document.body.classList.add("idle"); }, 2600);
 }
-["mousemove", "mousedown", "touchstart", "keydown", "wheel"].forEach(function (ev) {
+["mousemove", "pointerdown", "touchstart", "keydown", "wheel"].forEach(function (ev) {
   window.addEventListener(ev, wake, { passive: true });
 });
 wake();
-hintTimer = setTimeout(hideHint, 12000);
+setLockUI();
+hintTimer = setTimeout(hideHint, 14000);
+
+// iPhone Safari has no element fullscreen; hide the button rather than lie about it
+if (!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen)) {
+  fullBtn.style.display = "none";
+}
+
+/* ---- keep the screen awake, or a 30 minute burn down is unwatchable on a phone ---- */
+var wakeLock = null;
+function keepAwake() {
+  if (!navigator.wakeLock || wakeLock || document.hidden) return;
+  navigator.wakeLock.request("screen").then(function (l) {
+    wakeLock = l;
+    l.addEventListener("release", function () { wakeLock = null; });
+  }).catch(function () { });
+}
+document.addEventListener("visibilitychange", function () { if (!document.hidden) keepAwake(); });
+window.addEventListener("pointerdown", keepAwake, { passive: true });
+keepAwake();
 
 var resizeTimer = null;
 window.addEventListener("resize", function () {
@@ -888,8 +1032,9 @@ window.addEventListener("resize", function () {
 });
 
 /* ------------------------------------------------------------------ *
- *  boot  (screenshot hook: #t=<seconds> renders one deterministic frame,
- *  no rAF — headless Chrome's virtual time never advances rAF properly)
+ *  boot  (screenshot hook: #t=<seconds>&f=<fuel 0..1> renders one
+ *  deterministic frame, no rAF — headless Chrome's virtual time never
+ *  advances rAF properly)
  * ------------------------------------------------------------------ */
 
 resize();
@@ -897,7 +1042,11 @@ resize();
 var m = /[#&]t=([\d.]+)/.exec(location.hash);
 if (m) {
   var target = Math.min(120, parseFloat(m[1]) || 0);
+  var mf = /[#&]f=([\d.]+)/.exec(location.hash);
   litness = 1;
+  locked = true;                              // hold the fuel steady for the shot
+  setLockUI();
+  setFuel(mf ? parseFloat(mf[1]) : 1);
   var n = Math.round(target / STEP);
   for (var i = 0; i < n; i++) step(STEP);
   render();
