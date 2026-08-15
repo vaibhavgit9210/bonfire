@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bonfire</title>
+<meta name="description" content="An endless bonfire. Fullscreen it, turn the sound on, leave it burning.">
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    background: #000; overflow: hidden;
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+  body.idle { cursor: none; }
+
+  #ui {
+    position: fixed; right: 18px; bottom: 18px; z-index: 5;
+    display: flex; gap: 10px; align-items: center;
+    transition: opacity .5s ease;
+  }
+  body.idle #ui { opacity: 0; pointer-events: none; }
+
+  #ui button {
+    width: 44px; height: 44px; border-radius: 12px;
+    border: 1px solid rgba(255, 170, 90, .22);
+    background: rgba(20, 12, 8, .55);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    color: #ffb877; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0; transition: background .2s, color .2s, border-color .2s;
+  }
+  #ui button:hover { background: rgba(60, 30, 14, .75); color: #ffd6a8; border-color: rgba(255, 170, 90, .45); }
+  #ui button svg { width: 20px; height: 20px; display: block; }
+  #ui button.off { color: rgba(255, 184, 119, .38); }
+
+  #hint {
+    position: fixed; left: 0; right: 0; bottom: 26px; z-index: 4;
+    text-align: center; color: rgba(255, 200, 150, .55);
+    font-size: 13px; letter-spacing: .18em; text-transform: uppercase;
+    pointer-events: none; transition: opacity 1s ease;
+  }
+  #hint.gone { opacity: 0; }
+
+  @media (max-width: 640px) {
+    #ui { right: 12px; bottom: 12px; }
+    #hint { font-size: 11px; letter-spacing: .14em; }
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="ui">
+  <button id="sound" class="off" title="Sound (S)" aria-label="Toggle sound">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z"/>
+      <g id="waves"><path d="M15.5 9.2a4 4 0 0 1 0 5.6"/><path d="M18 6.8a7.5 7.5 0 0 1 0 10.4"/></g>
+      <g id="muted" style="display:none"><path d="M16 9.5l5 5"/><path d="M21 9.5l-5 5"/></g>
+    </svg>
+  </button>
+  <button id="full" title="Fullscreen (F)" aria-label="Toggle fullscreen">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>
+    </svg>
+  </button>
+</div>
+
+<div id="hint">click for sound &nbsp;·&nbsp; f for fullscreen</div>
+
+<script>
+"use strict";
+(function () {
+
+/* ------------------------------------------------------------------ *
+ *  deterministic randomness + value noise
+ * ------------------------------------------------------------------ */
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+var rnd = mulberry32(0x5eed);      // simulation stream
+var srnd = mulberry32(0x1f5a37);   // scene-layout stream, re-seeded on resize
+
+// value noise over a hashed lattice — cheap, seamless enough for turbulence
+var PERM = new Uint8Array(512);
+(function () {
+  var p = new Uint8Array(256), r = mulberry32(7717);
+  for (var i = 0; i < 256; i++) p[i] = i;
+  for (var i = 255; i > 0; i--) { var j = (r() * (i + 1)) | 0, t = p[i]; p[i] = p[j]; p[j] = t; }
+  for (var i = 0; i < 512; i++) PERM[i] = p[i & 255];
+})();
+
+function lat(i, j) { return PERM[(PERM[i & 255] + (j & 255)) & 255] / 255; }
+function smooth(t) { return t * t * (3 - 2 * t); }
+
+function noise2(x, y) {
+  var xi = Math.floor(x), yi = Math.floor(y);
+  var xf = smooth(x - xi), yf = smooth(y - yi);
+  var a = lat(xi, yi), b = lat(xi + 1, yi), c = lat(xi, yi + 1), d = lat(xi + 1, yi + 1);
+  return (a + (b - a) * xf) + ((c + (d - c) * xf) - (a + (b - a) * xf)) * yf;
+}
+function noise1(x) { return noise2(x, 0.5); }
+
+/* ------------------------------------------------------------------ *
+ *  canvas
+ * ------------------------------------------------------------------ */
+
+var canvas = document.getElementById("c");
+var ctx = canvas.getContext("2d", { alpha: false });
+var W = 0, H = 0, U = 1, DPR = 1;
+var baseX = 0, baseY = 0;
+var quality = 1;                    // adaptive particle budget, 0.5 .. 1
+
+/* ------------------------------------------------------------------ *
+ *  sprites (pre-rendered so no gradient is built per frame)
+ * ------------------------------------------------------------------ */
+
+function radialSprite(size, r, g, b, core, pow) {
+  var cv = document.createElement("canvas");
+  cv.width = cv.height = size;
+  var c = cv.getContext("2d");
+  var img = c.createImageData(size, size);
+  var d = img.data, mid = size / 2;
+  for (var y = 0; y < size; y++) {
+    for (var x = 0; x < size; x++) {
+      var dx = (x - mid + .5) / mid, dy = (y - mid + .5) / mid;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      var a = dist >= 1 ? 0 : Math.pow(1 - dist, pow);
+      a = Math.min(1, a * (1 + core * Math.pow(Math.max(0, 1 - dist * 2.2), 2)));
+      var i = (y * size + x) * 4;
+      d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = (a * 255) | 0;
+    }
+  }
+  c.putImageData(img, 0, 0);
+  return cv;
+}
+
+// hot -> cold flame ramp
+var RAMP = [
+  [255, 253, 240], [255, 244, 202], [255, 228, 148], [255, 203, 92],
+  [255, 172, 52], [252, 140, 28], [242, 108, 16], [222, 78, 10],
+  [190, 50, 6], [150, 30, 4], [108, 16, 3], [66, 8, 2]
+];
+var FLAME_SPRITES = [];
+var SPARK_SPRITE, SMOKE_SPRITE, GLOW_SPRITE, EMBER_SPRITE;
+
+function buildSprites() {
+  FLAME_SPRITES.length = 0;
+  for (var i = 0; i < RAMP.length; i++) {
+    var c = RAMP[i];
+    FLAME_SPRITES.push(radialSprite(64, c[0], c[1], c[2], .55, 2.1));
+  }
+  SPARK_SPRITE = radialSprite(24, 255, 224, 160, 1.6, 2.6);
+  SMOKE_SPRITE = radialSprite(80, 150, 138, 128, 0, 1.5);
+  GLOW_SPRITE = radialSprite(256, 255, 146, 46, 0, 2.4);
+  EMBER_SPRITE = radialSprite(32, 255, 190, 96, 1.4, 2.2);
+}
+buildSprites();
+
+/* ------------------------------------------------------------------ *
+ *  scene geometry — logs, stones, coal bed. Rebuilt on resize.
+ * ------------------------------------------------------------------ */
+
+var logs = [], stones = [], coals = [];
+
+function buildScene() {
+  srnd = mulberry32(0x1f5a37);
+  logs.length = 0; stones.length = 0; coals.length = 0;
+
+  // gravel + ash chunks scattered over the pit floor
+  for (var i = 0; i < 90; i++) {
+    var a = srnd() * Math.PI * 2, rr = .25 + Math.sqrt(srnd()) * .75;
+    stones.push({
+      x: Math.cos(a) * rr * 250, y: 20 + Math.sin(a) * rr * 74,
+      w: 2.5 + srnd() * 7, h: 1.6 + srnd() * 3.6,
+      rot: (srnd() - .5) * .8,
+      tone: .35 + srnd() * .65,
+      near: 1 - rr
+    });
+  }
+  stones.sort(function (a, b) { return a.y - b.y; });
+
+  // pyre: two logs lying flat, four leaning into a teepee
+  function log(x, y, len, th, rot, front, char) {
+    var o = { x: x, y: y, len: len, th: th, rot: rot, front: front, char: char, cracks: [], grain: [] };
+    var nc = 5 + (srnd() * 6 | 0);
+    for (var i = 0; i < nc; i++) {
+      o.cracks.push({
+        u: (srnd() - .5) * .86, v: .1 + srnd() * .45,   // mostly on the fire-facing side
+        l: .015 + srnd() * .055, a: (srnd() - .5) * 2.2,
+        ph: srnd() * 6.28, sp: .7 + srnd() * 1.9
+      });
+    }
+    var ng = 5 + (srnd() * 4 | 0);
+    for (var i = 0; i < ng; i++) o.grain.push({ v: (srnd() - .5) * .8, u0: (srnd() - .5) * .7, u1: .1 + srnd() * .5 });
+    logs.push(o);
+    return o;
+  }
+
+  // back: leaning teepee. front: the two logs lying across the ashes.
+  log(-66, -34, 250, 30, -.78, false, .5);
+  log(58, -40, 262, 32, .74, false, .45);
+  log(4, -52, 236, 26, -1.32, false, .4);
+  log(-90, 4, 214, 30, -.10, false, .8);
+  log(-18, 26, 268, 40, .05, true, .9);
+  log(46, 14, 232, 34, -.13, true, .85);
+
+  // glowing coal bed
+  for (var i = 0; i < 110; i++) {
+    var t = srnd() * Math.PI * 2, rr = Math.sqrt(srnd());
+    coals.push({
+      x: Math.cos(t) * rr * 92, y: 12 + Math.sin(t) * rr * 22,
+      r: 2.4 + srnd() * 6.5,
+      ph: srnd() * 6.28, sp: .4 + srnd() * 1.6,
+      hot: .35 + srnd() * .65
+    });
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  particles — fixed pools, nothing allocates after startup
+ * ------------------------------------------------------------------ */
+
+var MAX_FLAME = 900, MAX_SMOKE = 150, MAX_SPARK = 260;
+
+function pool(size, make) {
+  var a = new Array(size);
+  for (var i = 0; i < size; i++) { a[i] = make(); a[i].dead = true; }
+  return a;
+}
+
+var flames = pool(MAX_FLAME, function () {
+  return { x: 0, y: 0, vx: 0, vy: 0, age: 0, life: 1, size: 1, a0: 1, heat: 0, c0: 0, swirl: 0, dead: true };
+});
+var smokes = pool(MAX_SMOKE, function () {
+  return { x: 0, y: 0, vx: 0, vy: 0, age: 0, life: 1, size: 1, a0: 1, rot: 0, dead: true };
+});
+var sparks = pool(MAX_SPARK, function () {
+  return { x: 0, y: 0, vx: 0, vy: 0, age: 0, life: 1, size: 1, flick: 0, dead: true };
+});
+
+function spawn(p) {
+  for (var i = 0; i < p.length; i++) if (p[i].dead) return p[i];
+  return null;
+}
+
+/* ------------------------------------------------------------------ *
+ *  simulation
+ * ------------------------------------------------------------------ */
+
+var T = 0;                 // seconds since ignition
+var gust = 0, breath = 1;  // slow wind + slow intensity swell
+var flameAcc = 0, coreAcc = 0, smokeAcc = 0, sparkAcc = 0;
+var nextCrackle = 1.2;
+var flare = 0;             // brief brightness bump after a loud crackle
+var litness = 0;           // 0..1 ignition ramp so the first seconds build up
+
+var EMITTERS = [
+  { x: -58, w: 34, weight: .8, ph: 0.0 },
+  { x: -2, w: 42, weight: 1.0, ph: 2.1 },
+  { x: 54, w: 34, weight: .85, ph: 4.3 }
+];
+
+function pickEmitter() {
+  var r = rnd() * 2.65, s = 0;
+  for (var i = 0; i < EMITTERS.length; i++) { s += EMITTERS[i].weight; if (r <= s) return EMITTERS[i]; }
+  return EMITTERS[1];
+}
+
+function emitFlame(core) {
+  var p = spawn(flames);
+  if (!p) return;
+  var e = pickEmitter();
+  var wob = (noise1(T * .5 + e.ph) - .5) * 24;
+  var sp = (rnd() + rnd() - 1);
+  p.x = (e.x + wob + sp * e.w) * U;
+  p.y = (10 + (rnd() - .5) * 18) * U;
+  p.vx = sp * -12 * U + (rnd() - .5) * 30 * U;      // converge toward the middle
+  p.vy = -(core ? 150 : 95) * U * (.7 + rnd() * .6);
+  p.age = 0;
+  p.life = core ? .24 + rnd() * .32 : .8 + rnd() * .85;
+  p.size = (core ? 14 + rnd() * 18 : 36 + rnd() * 48) * U;
+  p.a0 = core ? .13 + rnd() * .12 : .13 + rnd() * .13;
+  p.heat = core ? 0 : rnd() * .3;
+  p.c0 = core ? 0 : 1.4;                             // only the core burns white
+  p.swirl = (rnd() - .5) * 2;
+  if (!core && rnd() < .06) {                        // the odd tongue that licks higher
+    p.life *= 1.35; p.vy *= 1.5; p.size *= .75; p.a0 *= 1.2;
+  }
+  p.dead = false;
+}
+
+function emitSmoke() {
+  var p = spawn(smokes);
+  if (!p) return;
+  p.x = (rnd() - .5) * 150 * U;
+  p.y = -(300 + rnd() * 200) * U;
+  p.vx = (rnd() - .5) * 34 * U;
+  p.vy = -(46 + rnd() * 40) * U;
+  p.age = 0;
+  p.life = 3.4 + rnd() * 3.6;
+  p.size = (60 + rnd() * 70) * U;
+  p.a0 = .010 + rnd() * .016;
+  p.rot = rnd() * 6.28;
+  p.dead = false;
+}
+
+function emitSpark(burst) {
+  var p = spawn(sparks);
+  if (!p) return;
+  if (burst) {
+    var a = rnd() * Math.PI * 2, s = (40 + rnd() * 170) * U;
+    p.x = (rnd() - .5) * 90 * U;
+    p.y = (rnd() - .5) * 30 * U;
+    p.vx = Math.cos(a) * s;
+    p.vy = Math.sin(a) * s * .55 - 120 * U;
+  } else {
+    p.x = (rnd() - .5) * 86 * U;
+    p.y = -(rnd() * 60) * U;
+    p.vx = (rnd() - .5) * 40 * U;
+    p.vy = -(150 + rnd() * 220) * U;
+  }
+  p.age = 0;
+  p.life = 1.1 + rnd() * 3.4;
+  p.size = (1.6 + rnd() * 3.2) * U;
+  p.flick = rnd() * 6.28;
+  p.dead = false;
+}
+
+function crackle() {
+  var strength = Math.pow(rnd(), 2.1);              // mostly small ticks, rarely a loud snap
+  var n = 3 + (strength * 26 | 0);
+  for (var i = 0; i < n; i++) emitSpark(true);
+  if (strength > .55) flare = Math.max(flare, strength);
+  Audio.crackle(strength);
+  nextCrackle = T + .22 + rnd() * rnd() * 5.2;
+}
+
+function step(dt) {
+  T += dt;
+  litness = Math.min(1, litness + dt * .55);
+
+  // slow breathing so it never looks looped
+  gust = (noise1(T * .085) - .5) * 2;
+  breath = .78 + noise1(T * .13 + 40) * .5;
+  var vigor = breath * litness;
+  flare *= Math.pow(.02, dt);
+
+  var windX = gust * 46 * U * (.6 + breath * .5);
+
+  // ---- emission (accumulators keep rates frame-rate independent)
+  var q = quality;
+  flameAcc += dt * 480 * vigor * q;
+  while (flameAcc >= 1) { emitFlame(false); flameAcc -= 1; }
+  coreAcc += dt * 150 * vigor * q;
+  while (coreAcc >= 1) { emitFlame(true); coreAcc -= 1; }
+  smokeAcc += dt * 15 * vigor * q;
+  while (smokeAcc >= 1) { emitSmoke(); smokeAcc -= 1; }
+  sparkAcc += dt * (4 + vigor * 6) * q;
+  while (sparkAcc >= 1) { emitSpark(false); sparkAcc -= 1; }
+
+  if (T >= nextCrackle) crackle();
+
+  // ---- flames
+  var i, p, f;
+  for (i = 0; i < flames.length; i++) {
+    p = flames[i]; if (p.dead) continue;
+    p.age += dt;
+    if (p.age >= p.life) { p.dead = true; continue; }
+    f = p.age / p.life;
+
+    // turbulence: two octaves of noise scrolling upward = rising eddies
+    var nx = p.x * .010, ny = p.y * .010 - T * .55;
+    var t1 = noise2(nx, ny) - .5;
+    var t2 = noise2(p.x * .034 + 17.3, p.y * .034 - T * 1.7) - .5;
+    var turb = (t1 * 170 + t2 * 105) * U;
+
+    p.vx += (turb + p.swirl * 20 * U + windX * (.25 + f * 1.1)) * dt;
+    p.vy -= (345 * (1 - f * .7) + 75 * breath) * U * dt;      // buoyancy dies as it cools
+    p.vx -= p.x * 1.8 * dt;                                   // necking: pull toward the core
+    p.vx *= Math.pow(.16, dt);
+    p.vy *= Math.pow(.42, dt);
+
+    p.x += p.vx * dt; p.y += p.vy * dt;
+  }
+
+  // ---- smoke
+  for (i = 0; i < smokes.length; i++) {
+    p = smokes[i]; if (p.dead) continue;
+    p.age += dt;
+    if (p.age >= p.life) { p.dead = true; continue; }
+    f = p.age / p.life;
+    var s1 = noise2(p.x * .006 + 91, p.y * .006 - T * .22) - .5;
+    p.vx += (s1 * 90 + windX * 1.5) * U * dt * 0.6;
+    p.vy -= 40 * U * dt * (1 - f * .6);
+    p.vx *= Math.pow(.55, dt); p.vy *= Math.pow(.7, dt);
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.rot += dt * .25 * p.a0 * 10;
+  }
+
+  // ---- sparks
+  for (i = 0; i < sparks.length; i++) {
+    p = sparks[i]; if (p.dead) continue;
+    p.age += dt;
+    if (p.age >= p.life) { p.dead = true; continue; }
+    var k1 = noise2(p.x * .02 + 5, p.y * .02 - T * 1.1) - .5;
+    p.vx += (k1 * 260 * U + windX * 1.4) * dt;
+    p.vy += 150 * U * dt;                                     // gravity wins as it cools
+    p.vy -= 210 * U * dt * Math.max(0, 1 - p.age / (p.life * .5));
+    p.vx *= Math.pow(.5, dt); p.vy *= Math.pow(.62, dt);
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    if (p.y > 40 * U) p.dead = true;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  drawing
+ * ------------------------------------------------------------------ */
+
+var vignette = null;
+
+function buildVignette() {
+  vignette = document.createElement("canvas");
+  vignette.width = Math.max(1, W); vignette.height = Math.max(1, H);
+  var g = vignette.getContext("2d");
+  var r = Math.max(W, H) * .78;
+  var grad = g.createRadialGradient(W * .5, H * .62, r * .28, W * .5, H * .62, r);
+  grad.addColorStop(0, "rgba(0,0,0,0)");
+  grad.addColorStop(.62, "rgba(0,0,0,.35)");
+  grad.addColorStop(1, "rgba(0,0,0,.92)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, W, H);
+
+  // a hair of noise, baked in once — dark radial gradients band badly otherwise
+  g.fillStyle = g.createPattern(ditherTile(), "repeat");
+  g.fillRect(0, 0, W, H);
+}
+
+var DITHER = null;
+function ditherTile() {
+  if (DITHER) return DITHER;
+  DITHER = document.createElement("canvas");
+  DITHER.width = DITHER.height = 128;
+  var c = DITHER.getContext("2d"), img = c.createImageData(128, 128), d = img.data, r = mulberry32(4242);
+  for (var i = 0; i < d.length; i += 4) {
+    d[i] = d[i + 1] = d[i + 2] = 255;
+    d[i + 3] = (r() * 4) | 0;
+  }
+  c.putImageData(img, 0, 0);
+  return DITHER;
+}
+
+function drawSprite(sp, x, y, size, alpha) {
+  if (alpha <= .002) return;
+  ctx.globalAlpha = alpha;
+  var h = size * .5;
+  ctx.drawImage(sp, x - h, y - h, size, size);
+}
+
+function drawGround(light) {
+  // ash and scorched dirt under the pyre
+  ctx.save();
+  ctx.translate(0, 18 * U);
+  ctx.scale(1, .3);                       // squash a circle so the falloff stays soft all round
+  var g = ctx.createRadialGradient(0, 0, 14 * U, 0, 0, 275 * U);
+  g.addColorStop(0, "rgb(" + (26 + light * 26 | 0) + "," + (20 + light * 15 | 0) + "," + (17 + light * 9 | 0) + ")");
+  g.addColorStop(.5, "rgba(" + (14 + light * 12 | 0) + "," + (11 + light * 7 | 0) + "," + (10 + light * 5 | 0) + ",.75)");
+  g.addColorStop(1, "rgba(6,5,5,0)");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(0, 0, 275 * U, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  for (var i = 0; i < stones.length; i++) {
+    var s = stones[i];
+    var lit = light * s.tone * (.25 + s.near * .95);
+    ctx.fillStyle = "rgb(" + (10 + lit * 78 | 0) + "," + (9 + lit * 40 | 0) + "," + (8 + lit * 22 | 0) + ")";
+    ctx.beginPath();
+    ctx.ellipse(s.x * U, s.y * U, s.w * U, s.h * U, s.rot, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawLog(L, light) {
+  ctx.save();
+  ctx.translate(L.x * U, L.y * U);
+  ctx.rotate(L.rot);
+  var len = L.len * U, th = L.th * U, hl = len * .5, ht = th * .5;
+
+  // body: dark on top, ember-lit underside
+  var g = ctx.createLinearGradient(0, -ht, 0, ht);
+  var lit = light * (1 - L.char * .5);
+  g.addColorStop(0, "rgb(" + (8 + lit * 10 | 0) + "," + (7 + lit * 7 | 0) + "," + (6 + lit * 6 | 0) + ")");
+  g.addColorStop(.4, "rgb(" + (15 + lit * 30 | 0) + "," + (11 + lit * 16 | 0) + "," + (9 + lit * 10 | 0) + ")");
+  g.addColorStop(.82, "rgb(" + (26 + lit * 86 | 0) + "," + (16 + lit * 40 | 0) + "," + (11 + lit * 16 | 0) + ")");
+  g.addColorStop(1, "rgb(" + (16 + lit * 44 | 0) + "," + (11 + lit * 20 | 0) + "," + (9 + lit * 9 | 0) + ")");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  if (ctx.roundRect) { ctx.roundRect(-hl, -ht, len, th, ht * .35); }
+  else { ctx.ellipse(0, 0, hl, ht, 0, 0, Math.PI * 2); }
+  ctx.fill();
+
+  // sawn end, lit from the fire side
+  var eg = ctx.createRadialGradient(hl - ht * .2, 0, ht * .1, hl - ht * .2, 0, ht);
+  eg.addColorStop(0, "rgb(" + (30 + lit * 96 | 0) + "," + (20 + lit * 52 | 0) + "," + (14 + lit * 24 | 0) + ")");
+  eg.addColorStop(1, "rgb(" + (14 + lit * 30 | 0) + "," + (10 + lit * 16 | 0) + "," + (8 + lit * 8 | 0) + ")");
+  ctx.fillStyle = eg;
+  ctx.beginPath();
+  ctx.ellipse(hl - ht * .18, 0, ht * .34, ht * .98, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // bark grain + charred blotches
+  ctx.globalAlpha = .34;
+  ctx.strokeStyle = "rgba(0,0,0,.75)";
+  ctx.lineWidth = Math.max(1, U * 1.3);
+  for (var i = 0; i < L.grain.length; i++) {
+    var gr = L.grain[i];
+    ctx.beginPath();
+    ctx.moveTo(gr.u0 * len, gr.v * ht * 1.6);
+    ctx.lineTo((gr.u0 + gr.u1) * len, (gr.v + .06) * ht * 1.6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse((gr.u0 + gr.u1 * .5) * len, gr.v * ht * 1.3, len * .07, ht * .42, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(0,0,0,.5)";
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // glowing cracks — each breathes on its own clock
+  ctx.globalCompositeOperation = "lighter";
+  ctx.lineCap = "round";
+  for (var i = 0; i < L.cracks.length; i++) {
+    var ck = L.cracks[i];
+    var pulse = .35 + .65 * (.5 + .5 * Math.sin(T * ck.sp + ck.ph)) * noise1(T * .8 + ck.ph);
+    var a = pulse * light * (.28 + L.char * .32);
+    if (a < .02) continue;
+    ctx.globalAlpha = Math.min(.55, a);
+    ctx.strokeStyle = a > .38 ? "rgba(255,168,72,1)" : "rgba(228,92,20,1)";
+    ctx.lineWidth = Math.max(1, U * (.9 + pulse * 1.3));
+    var x0 = ck.u * len, y0 = ck.v * ht * 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x0 + Math.cos(ck.a) * ck.l * len, y0 + Math.sin(ck.a) * ck.l * len * .35);
+    ctx.stroke();
+  }
+  ctx.globalCompositeOperation = "source-over";
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function render() {
+  var vigor = breath * litness;
+  var light = Math.min(1.35, (.55 + vigor * .55 + flare * .5));
+
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.globalCompositeOperation = "source-over";
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "#050403";
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  ctx.translate(baseX, baseY);
+
+  var i, p;
+
+  // --- ground, then the pool of firelight lying on it
+  drawGround(light);
+  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = .17 * light;
+  ctx.drawImage(GLOW_SPRITE, -400 * U, -110 * U, 800 * U, 268 * U);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+
+  for (i = 0; i < logs.length; i++) if (!logs[i].front) drawLog(logs[i], light);
+
+  // --- coal bed
+  ctx.globalCompositeOperation = "lighter";
+  for (i = 0; i < coals.length; i++) {
+    var cl = coals[i];
+    var b = cl.hot * (.35 + .65 * (.5 + .5 * Math.sin(T * cl.sp + cl.ph))) * noise1(T * .6 + cl.ph * 3) * 2.1;
+    b = Math.min(1, b) * light;
+    drawSprite(EMBER_SPRITE, cl.x * U, cl.y * U, cl.r * U * (3.4 + b * 2.2), b * .75);
+  }
+
+  // --- smoke (dim, lit from below)
+  for (i = 0; i < smokes.length; i++) {
+    p = smokes[i]; if (p.dead) continue;
+    var f = p.age / p.life;
+    var a = p.a0 * Math.min(1, f * 5) * (1 - f) * (1 - f);
+    drawSprite(SMOKE_SPRITE, p.x, p.y, p.size * (.8 + f * 2.4), a);
+  }
+
+  // --- flames
+  var last = RAMP.length - 1;
+  for (i = 0; i < flames.length; i++) {
+    p = flames[i]; if (p.dead) continue;
+    var f = p.age / p.life;
+    var ci = p.c0 + Math.pow(f, 1.3) * (1 + p.heat) * (last - p.c0);
+    var idx = ci < 0 ? 0 : (ci > last ? last : ci | 0);
+    var a = p.a0 * Math.min(1, p.age / .05) * Math.pow(1 - f, 1.35) * (.72 + light * .38);
+    drawSprite(FLAME_SPRITES[idx], p.x, p.y, p.size * (.55 + f * 1.05), a);
+  }
+  ctx.globalCompositeOperation = "source-over";
+  ctx.globalAlpha = 1;
+
+  // --- front logs occlude the flame base
+  for (i = 0; i < logs.length; i++) if (logs[i].front) drawLog(logs[i], light);
+
+  // --- sparks
+  ctx.globalCompositeOperation = "lighter";
+  for (i = 0; i < sparks.length; i++) {
+    p = sparks[i]; if (p.dead) continue;
+    var f = p.age / p.life;
+    var fl = .45 + .55 * (.5 + .5 * Math.sin(T * 22 + p.flick));
+    drawSprite(SPARK_SPRITE, p.x, p.y, p.size * (2.4 + fl * 1.6), (1 - f) * (1 - f) * fl * .8);
+  }
+
+  // --- bloom
+  var gA = (.09 + vigor * .07 + flare * .16);
+  drawSprite(GLOW_SPRITE, 0, -110 * U, 700 * U, gA);
+  drawSprite(GLOW_SPRITE, 0, -30 * U, 330 * U, gA * 1.1);
+
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+  ctx.restore();
+
+  if (vignette) ctx.drawImage(vignette, 0, 0, W, H);
+}
+
+/* ------------------------------------------------------------------ *
+ *  audio — procedural, no files. Crackle events come from the sim so
+ *  the sparks and the pops always agree, muted or not.
+ * ------------------------------------------------------------------ */
+
+var Audio = (function () {
+  var ctxA = null, master = null, noiseBuf = null, on = false, ready = false;
+
+  function build() {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    ctxA = new AC();
+
+    // 4s of brown noise, reused forever
+    var sr = ctxA.sampleRate, n = sr * 4;
+    noiseBuf = ctxA.createBuffer(1, n, sr);
+    var d = noiseBuf.getChannelData(0), lastv = 0, r = mulberry32(31337);
+    for (var i = 0; i < n; i++) {
+      var white = r() * 2 - 1;
+      lastv = (lastv + .022 * white) / 1.022;
+      d[i] = lastv * 3.2;
+    }
+
+    master = ctxA.createGain();
+    master.gain.value = 0;
+    master.connect(ctxA.destination);
+
+    // the bed: low roar + high hiss off one looping source
+    var src = ctxA.createBufferSource();
+    src.buffer = noiseBuf; src.loop = true;
+
+    var lp = ctxA.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = 420; lp.Q.value = .6;
+    var roar = ctxA.createGain(); roar.gain.value = .5;
+    src.connect(lp).connect(roar).connect(master);
+
+    var bp = ctxA.createBiquadFilter();
+    bp.type = "bandpass"; bp.frequency.value = 2600; bp.Q.value = .7;
+    var hiss = ctxA.createGain(); hiss.gain.value = .055;
+    src.connect(bp).connect(hiss).connect(master);
+
+    // two slow, mutually-detuned LFOs so the roar never settles into a loop
+    [[0.061, .22, roar.gain], [0.027, .13, roar.gain], [0.043, .022, hiss.gain]].forEach(function (m) {
+      var o = ctxA.createOscillator(); o.frequency.value = m[0];
+      var g = ctxA.createGain(); g.gain.value = m[1];
+      o.connect(g).connect(m[2]);
+      o.start();
+    });
+
+    src.start();
+    ready = true;
+    return true;
+  }
+
+  function pop(strength, delay) {
+    if (!on || !ready) return;
+    var t0 = ctxA.currentTime + delay;
+    var dur = .018 + Math.random() * .07 + strength * .16;
+
+    var src = ctxA.createBufferSource();
+    src.buffer = noiseBuf;
+    src.playbackRate.value = .55 + Math.random() * 1.7;
+
+    var bp = ctxA.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 600 + Math.random() * 3600 * (1 - strength * .45);
+    bp.Q.value = 1.2 + Math.random() * 7;
+
+    var g = ctxA.createGain();
+    var peak = .05 + strength * .34;
+    g.gain.setValueAtTime(.0001, t0);
+    g.gain.exponentialRampToValueAtTime(peak, t0 + .004);
+    g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
+
+    src.connect(bp).connect(g).connect(master);
+    src.start(t0, Math.random() * 3);
+    src.stop(t0 + dur + .03);
+
+    // loud snaps get a woody thump underneath
+    if (strength > .6) {
+      var o = ctxA.createOscillator();
+      o.type = "triangle";
+      o.frequency.setValueAtTime(150 + Math.random() * 90, t0);
+      o.frequency.exponentialRampToValueAtTime(52, t0 + .12);
+      var og = ctxA.createGain();
+      og.gain.setValueAtTime(.0001, t0);
+      og.gain.exponentialRampToValueAtTime(.11 * strength, t0 + .006);
+      og.gain.exponentialRampToValueAtTime(.0001, t0 + .16);
+      o.connect(og).connect(master);
+      o.start(t0); o.stop(t0 + .19);
+    }
+  }
+
+  return {
+    get on() { return on; },
+    crackle: function (strength) {
+      if (!on || !ready) return;
+      var n = 1 + (Math.random() * (1 + strength * 4) | 0);
+      for (var i = 0; i < n; i++) pop(strength * (.45 + Math.random() * .55), i * (.012 + Math.random() * .075));
+    },
+    toggle: function () {
+      if (!ready && !build()) return false;
+      on = !on;
+      if (on) {
+        if (ctxA.state === "suspended") ctxA.resume();
+        master.gain.cancelScheduledValues(ctxA.currentTime);
+        master.gain.setValueAtTime(Math.max(.0001, master.gain.value), ctxA.currentTime);
+        master.gain.linearRampToValueAtTime(.85, ctxA.currentTime + 1.6);
+      } else {
+        master.gain.cancelScheduledValues(ctxA.currentTime);
+        master.gain.setValueAtTime(master.gain.value, ctxA.currentTime);
+        master.gain.linearRampToValueAtTime(.0001, ctxA.currentTime + .4);
+      }
+      return on;
+    }
+  };
+})();
+
+/* ------------------------------------------------------------------ *
+ *  layout
+ * ------------------------------------------------------------------ */
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.max(1, window.innerWidth);
+  H = Math.max(1, window.innerHeight);
+  canvas.width = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  canvas.style.width = W + "px";
+  canvas.style.height = H + "px";
+
+  U = Math.max(.3, Math.min(W / 640, H / 620));
+  baseX = W * .5;
+  baseY = H * .5 + Math.min(H * .28, 190 * U);   // keeps the pyre off the floor on tall screens
+
+  buildScene();
+  buildVignette();
+}
+
+/* ------------------------------------------------------------------ *
+ *  main loop — fixed timestep, hardened for very long sessions
+ * ------------------------------------------------------------------ */
+
+var STEP = 1 / 60, acc = 0, prev = 0, running = false;
+var perfWin = 0, perfFrames = 0;
+
+function frame(now) {
+  requestAnimationFrame(frame);
+
+  var dt = (now - prev) / 1000;
+  prev = now;
+  // a backgrounded tab, a sleeping laptop, or a stalled frame must never
+  // dump hours of simulation into one step
+  if (!(dt > 0) || dt > .25) dt = STEP;
+
+  acc += dt;
+  if (acc > .25) acc = .25;
+  var steps = 0;
+  while (acc >= STEP && steps < 4) { step(STEP); acc -= STEP; steps++; }
+  render();
+
+  // adaptive budget: if we're consistently slow, thin the particles out
+  perfWin += dt; perfFrames++;
+  if (perfWin >= 2) {
+    var fps = perfFrames / perfWin;
+    if (fps < 42 && quality > .45) quality = Math.max(.45, quality - .12);
+    else if (fps > 55 && quality < 1) quality = Math.min(1, quality + .06);
+    perfWin = 0; perfFrames = 0;
+  }
+}
+
+function start() {
+  if (running) return;
+  running = true;
+  prev = performance.now();
+  requestAnimationFrame(frame);
+}
+
+document.addEventListener("visibilitychange", function () {
+  // coming back from a hidden tab: drop the stale clock instead of catching up
+  if (!document.hidden) { prev = performance.now(); acc = 0; }
+});
+
+/* ------------------------------------------------------------------ *
+ *  UI
+ * ------------------------------------------------------------------ */
+
+var soundBtn = document.getElementById("sound");
+var fullBtn = document.getElementById("full");
+var hint = document.getElementById("hint");
+var waves = document.getElementById("waves");
+var muted = document.getElementById("muted");
+var hintTimer = null;
+
+function setSoundUI(state) {
+  soundBtn.classList.toggle("off", !state);
+  waves.style.display = state ? "" : "none";
+  muted.style.display = state ? "none" : "";
+}
+
+function hideHint() {
+  hint.classList.add("gone");
+  if (hintTimer) { clearTimeout(hintTimer); hintTimer = null; }
+}
+
+function toggleSound() {
+  setSoundUI(Audio.toggle());
+  hideHint();
+}
+
+function toggleFullscreen() {
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  } else {
+    var el = document.documentElement;
+    (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+  }
+}
+
+soundBtn.addEventListener("click", function (e) { e.stopPropagation(); toggleSound(); });
+fullBtn.addEventListener("click", function (e) { e.stopPropagation(); toggleFullscreen(); });
+
+// click anywhere to light the sound (browsers need the gesture anyway)
+document.addEventListener("click", function () { if (!Audio.on) toggleSound(); });
+document.addEventListener("dblclick", toggleFullscreen);
+
+document.addEventListener("keydown", function (e) {
+  var k = e.key.toLowerCase();
+  if (k === "f") { toggleFullscreen(); e.preventDefault(); }
+  else if (k === "s" || k === "m") { toggleSound(); e.preventDefault(); }
+});
+
+// hide the chrome (and the cursor) once you stop touching anything
+var idleTimer = null;
+function wake() {
+  document.body.classList.remove("idle");
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(function () { document.body.classList.add("idle"); }, 2600);
+}
+["mousemove", "mousedown", "touchstart", "keydown", "wheel"].forEach(function (ev) {
+  window.addEventListener(ev, wake, { passive: true });
+});
+wake();
+hintTimer = setTimeout(hideHint, 12000);
+
+var resizeTimer = null;
+window.addEventListener("resize", function () {
+  if (resizeTimer) clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(resize, 120);
+});
+
+/* ------------------------------------------------------------------ *
+ *  boot  (screenshot hook: #t=<seconds> renders one deterministic frame,
+ *  no rAF — headless Chrome's virtual time never advances rAF properly)
+ * ------------------------------------------------------------------ */
+
+resize();
+
+var m = /[#&]t=([\d.]+)/.exec(location.hash);
+if (m) {
+  var target = Math.min(120, parseFloat(m[1]) || 0);
+  litness = 1;
+  var n = Math.round(target / STEP);
+  for (var i = 0; i < n; i++) step(STEP);
+  render();
+  hideHint();
+  document.body.classList.add("idle");
+  // a late layout pass in headless can wipe the canvas — redraw on resize
+  window.addEventListener("resize", function () { resize(); render(); });
+} else {
+  start();
+}
+
+})();
+</script>
+
+<script>
+/* anonymous visit beacon — counts loads + presence heartbeats, no cookies */
+(function(){
+  if (location.protocol === "file:" || location.hostname === "localhost") return;
+  var EP = "https://site-analytics.vaibhavpro9210.workers.dev/ping";
+  var sid = sessionStorage.getItem("va_sid");
+  if (!sid) { sid = Math.random().toString(36).slice(2) + Date.now().toString(36); sessionStorage.setItem("va_sid", sid); }
+  function send(kind){
+    try { navigator.sendBeacon(EP, new Blob([JSON.stringify({sid:sid, page:location.pathname, kind:kind})], {type:"text/plain"})); } catch(e){}
+  }
+  send("load");
+  setInterval(function(){ if (document.visibilityState === "visible") send("beat"); }, 60000);
+})();
+</script>
+</body>
+</html>
