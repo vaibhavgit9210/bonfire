@@ -13,6 +13,12 @@ final class CrackleAudio {
     private var noise: [Float] = []
     private var rng = Mulberry32(seed: Entropy.seed())
 
+    /// One format, used both to connect the players and to build every buffer.
+    /// They have to agree exactly or `scheduleBuffer` throws
+    /// `_outputFormat.channelCount == buffer.format.channelCount`, and the
+    /// mixer's own output format is stereo on a phone but was mono here.
+    private var renderFormat: AVAudioFormat?
+
     /// 0...1. Zero is muted.
     var volume: Double = 0.7 {
         didSet {
@@ -43,7 +49,16 @@ final class CrackleAudio {
         started = true
         configureSession()
 
-        let format = engine.mainMixerNode.outputFormat(forBus: 0)
+        // Take the rate from the hardware, but keep our own channel count. The
+        // mixer converts mono up to whatever the device actually wants.
+        let hwRate = engine.outputNode.outputFormat(forBus: 0).sampleRate
+        let rate = hwRate > 0 ? hwRate : 48_000
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1) else {
+            started = false
+            return
+        }
+        renderFormat = format
+
         // A handful of players so overlapping clusters mix instead of queueing
         // up behind each other.
         for _ in 0..<6 {
@@ -82,8 +97,14 @@ final class CrackleAudio {
 
     /// One crackle: a short cluster of pops, rendered into a single buffer.
     func crackle(strength: Double) {
-        guard started, isOn, !players.isEmpty else { return }
-        let sr = engine.mainMixerNode.outputFormat(forBus: 0).sampleRate
+        guard started, isOn, !players.isEmpty, let format = renderFormat else { return }
+        // An interruption (a call, a route change, a media services reset) can
+        // leave the engine stopped. Bring it back rather than going silent.
+        if !engine.isRunning {
+            guard (try? engine.start()) != nil else { return }
+            players.forEach { $0.play() }
+        }
+        let sr = format.sampleRate
         guard sr > 0 else { return }
 
         let count = 1 + Int(rng.next() * (1 + strength * 4))
@@ -98,7 +119,6 @@ final class CrackleAudio {
 
         let frames = Int((tail + 0.05) * sr)
         guard frames > 0,
-              let format = AVAudioFormat(standardFormatWithSampleRate: sr, channels: 1),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames))
         else { return }
         buffer.frameLength = AVAudioFrameCount(frames)
